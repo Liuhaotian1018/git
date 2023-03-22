@@ -1,0 +1,95 @@
+
+
+/**
+ * 运维工具
+ 使用方法：
+ http接口：10.199.193.14:8081/devops/invoke
+ POST方法：
+ body：
+ {
+    "className": "com.sankuai.mall.wip.domain.facade.StaffBoardFacade",
+    "methodName": "getPlanShiftBreakTime",
+    "args": {
+        "request":{
+        "poiId": 4,
+        "shiftDate":1679328000000,
+        "shiftType":1
+    }
+    }
+}
+
+ */
+@RestController
+@RequestMapping("/devops")
+public class DevOpsUtil {
+    @Autowired
+    private ApplicationContext applicationContext;
+
+    @PostMapping("/invoke")
+    public Object devOpsInvoke(@RequestBody Param param) throws ClassNotFoundException {
+        ParamCheckUtil.checkStringNotBlank(param.getClassName(), "类名不能为空");
+        ParamCheckUtil.checkStringNotBlank(param.getMethodName(), "方法名不能为空");
+
+        Class<?> clazz = Class.forName(param.getClassName());
+        Object bean = applicationContext.getBean(clazz);
+        ParamCheckUtil.checkObjectNotNull(bean, "spring容器中没有相关bean");
+
+        Method method = getTargetMethod(clazz, param.getMethodName());
+        if (method.getParameterCount() == 0) {
+            return ReflectionUtils.invokeMethod(method, bean);
+        }
+
+        List<Object> methodArgs = getMethodArgs(method, param.getArgs());
+        return ReflectionUtils.invokeMethod(method, bean, methodArgs.toArray());
+    }
+
+    private Method getTargetMethod(Class<?> clazz, String methodName) {
+        List<Method> methods = Arrays.stream(clazz.getMethods())
+                .filter(item -> item.getName().equals(methodName))
+                .collect(Collectors.toList());
+        ParamCheckUtil.isTrue(CollectionUtils.isNotEmpty(methods), "方法不存在");
+        ParamCheckUtil.isTrue(methods.size() == 1, "有多个同名方法");
+        return methods.get(0);
+    }
+
+    private List<Object> getMethodArgs(Method method, Map<String, Object> args) {
+        return Arrays.stream(method.getParameters()).map(item -> {
+            String arg = argToString(args.get(item.getName()));
+            return typeConvert(item.getParameterizedType(), arg);
+        }).collect(Collectors.toList());
+    }
+
+    private String argToString(Object arg) {
+        if (arg == null) {
+            return null;
+        }
+
+        if (arg instanceof Map || arg instanceof List) {
+            return GsonUtils.toJson(arg);
+        }
+
+        return String.valueOf(arg);
+    }
+
+    private Object typeConvert(Type type, String arg) {
+        if (arg == null) {
+            return null;
+        }
+
+        if (String.class.getTypeName().equals(type.getTypeName())) {
+            return arg;
+        }
+
+        return GsonUtils.fromJson(arg, type);
+    }
+
+    @Getter
+    @Setter
+    @ToString
+    @Accessors(chain = true)
+    public static class Param {
+        private String className;
+        private String methodName;
+        private Map<String, Object> args;
+    }
+}
